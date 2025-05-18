@@ -1,0 +1,93 @@
+{
+  "compilerOptions": {
+    /* Base Options: TypeScript version and JavaScript support */
+    "target": "ES2020",                             /* Set JavaScript emission target - ES2020 supports all modern browsers and Node.js 14+ */
+    "lib": ["DOM", "DOM.Iterable", "ESNext"],       /* Specify libraries: DOM for browser APIs, ESNext for the latest JS features */
+    "jsx": "react-jsx",                             /* Support React JSX without requiring explicit imports */
+    "module": "ESNext",                             /* Use modern JavaScript modules */
+    "moduleResolution": "bundler",                  /* Use bundler-style module resolution for better Vite compatibility */
+    "allowJs": true,                                /* Allow TypeScript to process JS files */
+    "resolveJsonModule": true,                      /* Allow importing JSON files as modules */
+    "isolatedModules": true,                        /* Ensure each file can be transpiled independently */
+    "esModuleInterop": true,                        /* Enable proper interop between CommonJS and ES Modules */
+    "skipLibCheck": true,                           /* Skip type checking of declaration files (useful for libraries with inconsistent types) */
+    "forceConsistentCasingInFileNames": true,       /* Ensure consistent casing in file imports (important for case-sensitive systems) */
+
+    /* Type Checking and Strictness - Balanced for AI-assisted Development */
+    "strict": true,                                 /* Enable all strictness flags for essential type safety */
+    "noImplicitAny": true,                          /* Require explicit types where TypeScript can't infer - foundational for solid typing */
+    "strictNullChecks": true,                       /* Protect against null/undefined errors - one of the most valuable strictness flags */
+    "strictFunctionTypes": true,                    /* Enable proper function parameter type checking - important for API safety */
+    "strictBindCallApply": true,                    /* Ensure correct types for bind/call/apply on functions */
+    "noImplicitThis": true,                         /* Flag 'this' expressions with an implied any type */
+    
+    /* LOOSER SETTINGS - Better for AI-assisted development */
+    "strictPropertyInitialization": false,          /* LOOSER: Don't require properties to be initialized in constructors */
+    "exactOptionalPropertyTypes": false,            /* LOOSER: Allow undefined in optional properties for more flexibility */
+    "noUncheckedIndexedAccess": false,              /* LOOSER: Don't enforce null/undefined checks on indexed accesses */
+    "noPropertyAccessFromIndexSignature": false,    /* LOOSER: Allow dot notation on objects with index signatures */
+
+    /* Additional Checks - Selective to Avoid Excessive Errors */
+    "noImplicitReturns": true,                      /* Ensure all code paths in a function return a value */
+    "noFallthroughCasesInSwitch": true,             /* Flag potential errors in switch statements */
+    "noUnusedLocals": false,                        /* LOOSER: Don't error on unused local variables during development */
+    "noUnusedParameters": false,                    /* LOOSER: Don't error on unused parameters during iterative development */
+    "allowUnreachableCode": false,                  /* ERROR: Flag unreachable code */
+    "allowUnusedLabels": false,                     /* ERROR: Flag unused labels */
+
+    /* Module Resolution and Path Options */
+    "baseUrl": "./",                                /* Base directory for resolving non-relative module names */
+    "paths": {                                      /* Define path aliases for cleaner imports across the monorepo */
+      "@frontend/*": ["packages/frontend/src/*"],
+      "@backend/*": ["packages/backend/src/*"],
+      "@shared/*": ["packages/shared/src/*"],
+      "@/*": ["src/*"],
+      "@components/*": ["packages/frontend/src/components/*"],
+      "@api/*": ["packages/backend/src/api/*"],
+      "@utils/*": ["packages/shared/src/utils/*"],
+      "@models/*": ["packages/shared/src/types/*"],
+      "@firebase/*": ["packages/shared/src/services/firebase/*"]
+    },
+    "rootDir": "./",                                /* Specify the root directory of input files */
+    "outDir": "./dist",                             /* Redirect output to the dist directory */
+    "declaration": true,                            /* Generate .d.ts declaration files for shared packages */
+    "declarationMap": true,                         /* Generate sourcemaps for declaration files */
+    "sourceMap": true,                              /* Generate sourcemaps for debugging */
+
+    /* Compatibility Options for Firebase and React */
+    "allowSyntheticDefaultImports": true,           /* Allow 'import x from y' syntax even when y doesn't have a default export */
+    "useDefineForClassFields": true,                /* Use Object.defineProperty for class fields */
+    "experimentalDecorators": true,                 /* Enable decorators (used in some Firebase/Firestore patterns) */
+    "emitDecoratorMetadata": true,                  /* Emit design-type metadata for decorated declarations */
+    
+    /* Advanced Options - Optimized for Monorepo */
+    "incremental": true,                            /* Enable incremental compilation for faster builds */
+    "composite": true,                              /* Enable project references (for monorepo structure) */
+    "noEmit": false                                 /* Generate output files (required for monorepo references) */
+  },
+
+  /* Monorepo Project References - Enable cross-package dependencies */
+  "references": [
+    { "path": "./packages/shared" },
+    { "path": "./packages/frontend" },
+    { "path": "./packages/backend" }
+  ],
+
+  /* Files and Directories to Include/Exclude */
+  "include": [
+    "packages/*/src/**/*.ts",
+    "packages/*/src/**/*.tsx",
+    "packages/*/src/**/*.js",
+    "packages/*/src/**/*.jsx"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "build",
+    "**/node_modules",
+    "**/coverage",
+    "**/.next",
+    "**/out",
+    "**/.cache"
+  ]
+}

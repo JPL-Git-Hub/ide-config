@@ -1,0 +1,2769 @@
+#!/bin/bash
+# Client Portal Package Initialization Script (Monorepo-aware)
+# Usage: ~/IDE/scripts/init-package.sh [frontend|backend|full] [project-name] [--monorepo]
+
+set -e # Exit on error
+
+# Constants and configuration
+CONFIG_DIR="$HOME/IDE/config"
+SCRIPT_DIR="$HOME/IDE/scripts"
+TEMPLATES_DIR="$HOME/IDE/templates"
+SERVICE_TYPE="${1:-full}"
+PROJECT_NAME="${2:-$(basename $(pwd))}"
+IS_MONOREPO=false
+
+# Parse options - detect if being called from init-master.sh
+if [[ "$3" == "--monorepo" || "$2" == "--monorepo" || "$1" == "--monorepo" ]]; then
+  IS_MONOREPO=true
+  echo "📦 Running in monorepo mode"
+fi
+
+# Validate service type
+if [[ "$SERVICE_TYPE" != "frontend" && "$SERVICE_TYPE" != "backend" && "$SERVICE_TYPE" != "full" ]]; then
+  echo "❌ Error: Invalid service type. Valid options are 'frontend', 'backend', or 'full'"
+  echo "Usage: ./init-package.sh [frontend|backend|full] [project-name] [--monorepo]"
+  exit 1
+fi
+
+# Determine target directory based on mode and parameters
+if [[ "$PROJECT_NAME" == "--monorepo" ]]; then
+  # When --monorepo is given as project name
+  TARGET_DIR="$(pwd)"
+  PROJECT_NAME="$(basename $TARGET_DIR)"
+elif [ -n "$2" ] && [[ "$2" != "--monorepo" ]]; then
+  # When project name is given
+  TARGET_DIR="$(pwd)/$PROJECT_NAME"
+  mkdir -p "$TARGET_DIR"
+else
+  # Default to current directory
+  TARGET_DIR="$(pwd)"
+  PROJECT_NAME="$(basename $TARGET_DIR)"
+fi
+
+echo "🚀 Initializing a new '$SERVICE_TYPE' package in $TARGET_DIR"
+cd "$TARGET_DIR"
+
+# Get monorepo root name if in monorepo mode
+if [[ "$IS_MONOREPO" == true ]]; then
+  if [[ "$TARGET_DIR" == *"/packages/"* ]]; then
+    MONOREPO_ROOT=$(echo "$TARGET_DIR" | sed 's/\/packages\/.*//')
+    MONOREPO_NAME=$(basename "$MONOREPO_ROOT")
+    echo "🔗 Linked to monorepo: $MONOREPO_NAME"
+  else
+    echo "⚠️ Warning: Monorepo mode specified but not in a /packages/ directory"
+  fi
+fi
+
+# Generate package.json with appropriate values
+if [[ "$IS_MONOREPO" == true ]]; then
+  # For packages within a monorepo
+  if [[ "$TARGET_DIR" == *"/packages/shared"* ]]; then
+    # Shared package
+    echo "📄 Creating package.json for shared package..."
+    cat > "$TARGET_DIR/package.json" << EOL
+{
+  "name": "@${MONOREPO_NAME:-$PROJECT_NAME}/shared",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "dev": "tsc --watch",
+    "build": "tsc",
+    "lint": "eslint . --ext .ts,.tsx",
+    "format": "prettier --write \"**/*.{ts,tsx,json}\"",
+    "clean": "rimraf dist",
+    "test": "jest"
+  },
+  "dependencies": {
+    "zod": "^3.22.4",
+    "firebase": "^10.7.1",
+    "@firebase/performance": "^0.6.4",
+    "@firebase/app-check": "^0.8.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.4",
+    "eslint": "^8.40.0",
+    "prettier": "^2.8.8",
+    "rimraf": "^5.0.0",
+    "jest": "^29.5.0",
+    "@types/jest": "^29.5.0"
+  }
+}
+EOL
+  else
+    # Frontend or backend package in monorepo
+    echo "📄 Creating package.json for $SERVICE_TYPE package in monorepo..."
+    cat > "$TARGET_DIR/package.json" << EOL
+{
+  "name": "@${MONOREPO_NAME:-$PROJECT_NAME}/${SERVICE_TYPE}",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+EOL
+
+    # Service-specific scripts
+    if [[ "$SERVICE_TYPE" == "frontend" ]]; then
+      cat >> "$TARGET_DIR/package.json" << EOL
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+EOL
+    elif [[ "$SERVICE_TYPE" == "backend" ]]; then
+      cat >> "$TARGET_DIR/package.json" << EOL
+    "dev": "nodemon --exec ts-node src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+EOL
+    else
+      cat >> "$TARGET_DIR/package.json" << EOL
+    "dev": "echo \"Error: specify dev command\" && exit 1",
+    "build": "tsc",
+    "start": "node dist/index.js",
+EOL
+    fi
+
+    # Common scripts for all package types
+    cat >> "$TARGET_DIR/package.json" << EOL
+    "lint": "eslint . --ext .ts,.tsx",
+    "lint:fix": "eslint . --ext .ts,.tsx --fix",
+    "format": "prettier --write \"**/*.{ts,tsx,css,json}\"",
+    "type-check": "tsc --noEmit",
+    "test": "jest",
+    "clean": "rimraf dist"
+  },
+EOL
+
+    # Package-specific dependencies
+    if [[ "$SERVICE_TYPE" == "frontend" ]]; then
+      cat >> "$TARGET_DIR/package.json" << EOL
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.16.0",
+    "@tanstack/react-query": "^5.14.0",
+    "zod": "^3.22.4",
+    "zustand": "^4.4.7",
+    "firebase": "^10.7.1",
+    "@firebase/performance": "^0.6.4",
+    "@firebase/app-check": "^0.8.0",
+    "@${MONOREPO_NAME:-$PROJECT_NAME}/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.15",
+    "@types/react-dom": "^18.2.7",
+    "@vitejs/plugin-react": "^4.0.4",
+    "autoprefixer": "^10.4.16",
+    "postcss": "^8.4.31",
+    "tailwindcss": "^3.3.5",
+    "vite": "^4.4.9",
+    "typescript": "^5.0.4",
+    "eslint": "^8.45.0",
+    "eslint-plugin-react": "^7.33.0",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "jest": "^29.6.2",
+    "@types/jest": "^29.5.3"
+  }
+EOL
+    elif [[ "$SERVICE_TYPE" == "backend" ]]; then
+      cat >> "$TARGET_DIR/package.json" << EOL
+  "dependencies": {
+    "express": "^4.18.2",
+    "express-subdomain": "^1.0.5",
+    "cors": "^2.8.5",
+    "helmet": "^7.0.0",
+    "dotenv": "^16.3.1",
+    "firebase-admin": "^11.10.1",
+    "zod": "^3.22.4",
+    "@${MONOREPO_NAME:-$PROJECT_NAME}/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.17",
+    "@types/express-subdomain": "^1.0.1",
+    "@types/cors": "^2.8.13",
+    "@types/node": "^20.5.0",
+    "@types/swagger-ui-express": "^4.1.6",
+    "@types/swagger-jsdoc": "^6.0.4",
+    "typescript": "^5.1.6",
+    "ts-node": "^10.9.1",
+    "nodemon": "^3.0.1",
+    "eslint": "^8.45.0",
+    "jest": "^29.6.2",
+    "@types/jest": "^29.5.3",
+    "supertest": "^6.3.3",
+    "@types/supertest": "^2.0.12"
+  }
+EOL
+    fi
+
+    # Close package.json
+    echo "}" >> "$TARGET_DIR/package.json"
+  fi
+else
+  # Standalone package (not in monorepo)
+  echo "📄 Creating package.json for standalone package..."
+  cat > "$TARGET_DIR/package.json" << EOL
+{
+  "name": "${PROJECT_NAME}",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+EOL
+
+  # Service-specific scripts
+  if [[ "$SERVICE_TYPE" == "frontend" ]]; then
+    cat >> "$TARGET_DIR/package.json" << EOL
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+EOL
+  elif [[ "$SERVICE_TYPE" == "backend" ]]; then
+    cat >> "$TARGET_DIR/package.json" << EOL
+    "dev": "nodemon --exec ts-node src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+EOL
+  else
+    cat >> "$TARGET_DIR/package.json" << EOL
+    "dev": "echo \"Error: specify dev command\" && exit 1",
+    "build": "tsc",
+    "start": "node dist/index.js",
+EOL
+  fi
+
+  # Common scripts
+  cat >> "$TARGET_DIR/package.json" << EOL
+    "lint": "eslint . --ext .ts,.tsx",
+    "lint:fix": "eslint . --ext .ts,.tsx --fix",
+    "format": "prettier --write \"**/*.{ts,tsx,css,json}\"",
+    "type-check": "tsc --noEmit",
+    "test": "jest"
+  },
+EOL
+
+  # Package-specific dependencies
+  if [[ "$SERVICE_TYPE" == "frontend" ]]; then
+    cat >> "$TARGET_DIR/package.json" << EOL
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.16.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.15",
+    "@types/react-dom": "^18.2.7",
+    "@vitejs/plugin-react": "^4.0.4",
+    "autoprefixer": "^10.4.16",
+    "postcss": "^8.4.31",
+    "tailwindcss": "^3.3.5",
+    "vite": "^4.4.9",
+    "typescript": "^5.0.4",
+    "eslint": "^8.45.0",
+    "eslint-plugin-react": "^7.33.0",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "jest": "^29.6.2",
+    "@types/jest": "^29.5.3"
+  }
+EOL
+  elif [[ "$SERVICE_TYPE" == "backend" ]]; then
+    cat >> "$TARGET_DIR/package.json" << EOL
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "helmet": "^7.0.0",
+    "dotenv": "^16.3.1",
+    "firebase-admin": "^11.10.1"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.17",
+    "@types/express-subdomain": "^1.0.1",
+    "@types/cors": "^2.8.13",
+    "@types/node": "^20.5.0",
+    "@types/swagger-ui-express": "^4.1.6",
+    "@types/swagger-jsdoc": "^6.0.4",
+    "typescript": "^5.1.6",
+    "ts-node": "^10.9.1",
+    "nodemon": "^3.0.1",
+    "eslint": "^8.45.0",
+    "jest": "^29.6.2",
+    "@types/jest": "^29.5.3",
+    "supertest": "^6.3.3",
+    "@types/supertest": "^2.0.12"
+  }
+EOL
+  fi
+
+  # Close package.json
+  echo "}" >> "$TARGET_DIR/package.json"
+fi
+
+# Create .gitignore if not in monorepo mode (monorepo root already has one)
+if [[ "$IS_MONOREPO" == false ]]; then
+  echo "🔒 Creating .gitignore..."
+  cat > "$TARGET_DIR/.gitignore" << EOL
+# Dependencies
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+package-lock.json
+
+# Build outputs
+dist
+build
+.next
+out
+
+# Environment variables
+.env*
+!.env.example
+
+# Logs
+logs
+*.log
+
+# Cache and temp files
+.cache
+.temp
+.DS_Store
+*.tsbuildinfo
+.eslintcache
+
+# Testing
+coverage
+
+# IDE specific files
+.idea
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+EOL
+fi
+
+# Create directory structure
+echo "📁 Creating directory structure..."
+mkdir -p "$TARGET_DIR/src"
+mkdir -p "$TARGET_DIR/types"
+mkdir -p "$TARGET_DIR/tests"
+
+# Copy configuration files from templates
+echo "🔧 Copying configuration files..."
+
+# Copy TypeScript configuration
+if [ -f "$CONFIG_DIR/typescript/tsconfig.json" ]; then
+  # Determine which tsconfig to use
+  if [[ "$SERVICE_TYPE" == "frontend" ]]; then
+    echo "📝 Setting up TypeScript for React..."
+    cat > "$TARGET_DIR/tsconfig.json" << EOL
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "lib": ["DOM", "DOM.Iterable", "ESNext"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "noFallthroughCasesInSwitch": true,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@components/*": ["./src/components/*"],
+      "@pages/*": ["./src/pages/*"],
+      "@hooks/*": ["./src/hooks/*"],
+      "@utils/*": ["./src/utils/*"],
+      "@api/*": ["./src/api/*"],
+      "@assets/*": ["./src/assets/*"],
+      "@context/*": ["./src/context/*"],
+      "@styles/*": ["./src/styles/*"]
+    }
+  },
+  "include": ["src", "tests"],
+  "exclude": ["node_modules", "dist"],
+  "references": [
+    { "path": "./tsconfig.node.json" }
+  ]
+}
+EOL
+
+    # Add Node.js specific tsconfig for Vite
+    cat > "$TARGET_DIR/tsconfig.node.json" << EOL
+{
+  "compilerOptions": {
+    "composite": true,
+    "skipLibCheck": true,
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowSyntheticDefaultImports": true
+  },
+  "include": ["vite.config.ts"]
+}
+EOL
+  elif [[ "$SERVICE_TYPE" == "backend" ]]; then
+    echo "📝 Setting up TypeScript for Node.js..."
+    cat > "$TARGET_DIR/tsconfig.json" << EOL
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "esModuleInterop": true,
+    "sourceMap": true,
+    "outDir": "dist",
+    "strict": true,
+    "lib": ["ES2020"],
+    "types": ["node", "jest"],
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@controllers/*": ["./src/controllers/*"],
+      "@routes/*": ["./src/routes/*"],
+      "@models/*": ["./src/models/*"],
+      "@middleware/*": ["./src/middleware/*"],
+      "@utils/*": ["./src/utils/*"],
+      "@config/*": ["./src/config/*"]
+    }
+  },
+  "include": ["src", "tests"],
+  "exclude": ["node_modules", "dist"]
+}
+EOL
+  else
+    echo "📝 Setting up TypeScript for shared code..."
+    cat > "$TARGET_DIR/tsconfig.json" << EOL
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "lib": ["ES2020", "DOM"],
+    "declaration": true,
+    "sourceMap": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "strict": true,
+    "moduleResolution": "node",
+    "baseUrl": "src",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "tests"]
+}
+EOL
+  fi
+else
+  echo "⚠️ Warning: TypeScript configuration not found at $CONFIG_DIR/typescript/tsconfig.json"
+  # Fall back to a simple tsconfig
+  cat > "$TARGET_DIR/tsconfig.json" << EOL
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "outDir": "dist"
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "dist"]
+}
+EOL
+fi
+
+# Copy ESLint configuration
+if [ -f "$CONFIG_DIR/eslint/.eslintrc.js" ]; then
+  cp "$CONFIG_DIR/eslint/.eslintrc.js" "$TARGET_DIR/"
+else
+  echo "⚠️ Warning: ESLint configuration not found at $CONFIG_DIR/eslint/.eslintrc.js"
+fi
+
+# Copy Prettier configuration
+if [ -f "$CONFIG_DIR/prettier/.prettierrc" ]; then
+  cp "$CONFIG_DIR/prettier/.prettierrc" "$TARGET_DIR/"
+else
+  echo "⚠️ Warning: Prettier configuration not found at $CONFIG_DIR/prettier/.prettierrc"
+fi
+
+# Skip git initialization in packages when in monorepo mode
+if [[ "$IS_MONOREPO" == false ]]; then
+  # Initialize git repository if not in monorepo mode
+  if [ ! -d "$TARGET_DIR/.git" ]; then
+    echo "🔄 Initializing git repository..."
+    git init "$TARGET_DIR"
+    "$SCRIPT_DIR/init-git-yarn.sh" "$TARGET_DIR"
+  else
+    echo "ℹ️ Git repository already exists, skipping initialization"
+  fi
+fi
+
+# Create README.md
+echo "📝 Creating README.md..."
+cat > "$TARGET_DIR/README.md" << EOF
+# ${PROJECT_NAME} (${SERVICE_TYPE})
+
+Part of the client portal system monorepo architecture.
+
+## Getting Started
+
+\`\`\`bash
+# Install dependencies
+yarn install
+
+# Start development server
+yarn dev
+
+# Build for production
+yarn build
+\`\`\`
+
+## Environment Variables
+
+Create a \`.env\` file based on \`.env.example\` with your environment-specific values.
+
+## Features
+
+- [List key features of this package]
+
+$([ "$SERVICE_TYPE" == "backend" ] && echo "## API Endpoints
+
+- [Document API endpoints]")
+EOF
+
+# Create example .env.example file
+echo "📝 Creating .env.example..."
+if [[ "$SERVICE_TYPE" == "frontend" ]]; then
+  cat > "$TARGET_DIR/.env.example" << EOF
+# Environment (development, production, test)
+NODE_ENV=development
+
+# Firebase Configuration
+VITE_FIREBASE_API_KEY=
+VITE_FIREBASE_AUTH_DOMAIN=
+VITE_FIREBASE_PROJECT_ID=
+VITE_FIREBASE_STORAGE_BUCKET=
+VITE_FIREBASE_MESSAGING_SENDER_ID=
+VITE_FIREBASE_APP_ID=
+VITE_FIREBASE_MEASUREMENT_ID=
+
+# Firebase Performance Monitoring
+VITE_ENABLE_PERFORMANCE=true
+
+# Firebase Error Reporting
+VITE_ENABLE_ERROR_REPORTING=true
+
+# API URL
+VITE_API_URL=http://localhost:3000
+EOF
+elif [[ "$SERVICE_TYPE" == "backend" ]]; then
+  cat > "$TARGET_DIR/.env.example" << EOF
+# Environment (development, production, test)
+NODE_ENV=development
+
+# Server Configuration
+PORT=3000
+API_PREFIX=/api
+
+# Firebase Admin
+FIREBASE_PROJECT_ID=
+FIREBASE_PRIVATE_KEY=
+FIREBASE_CLIENT_EMAIL=
+FIREBASE_STORAGE_BUCKET=
+
+# Firebase Performance Monitoring
+FIREBASE_ENABLE_PERFORMANCE=true
+
+# Base domain for subdomain routing
+BASE_DOMAIN=example.com
+
+# Google Cloud
+GOOGLE_CLOUD_PROJECT=
+GOOGLE_APPLICATION_CREDENTIALS=path/to/service-account.json
+
+# Emulators
+FIREBASE_USE_EMULATORS=true
+FIRESTORE_EMULATOR_HOST=localhost:8080
+FIREBASE_AUTH_EMULATOR_HOST=localhost:9099
+FIREBASE_STORAGE_EMULATOR_HOST=localhost:9199
+EOF
+fi
+
+# Create service-specific files
+if [[ "$SERVICE_TYPE" == "frontend" ]]; then
+  # Create Frontend directories
+  mkdir -p "$TARGET_DIR/src/components"
+  mkdir -p "$TARGET_DIR/src/pages"
+  mkdir -p "$TARGET_DIR/src/hooks"
+  mkdir -p "$TARGET_DIR/src/utils"
+  mkdir -p "$TARGET_DIR/src/assets"
+  mkdir -p "$TARGET_DIR/src/api"
+  mkdir -p "$TARGET_DIR/src/api/queries"
+  mkdir -p "$TARGET_DIR/src/api/mutations"
+  mkdir -p "$TARGET_DIR/src/api/validators"
+  mkdir -p "$TARGET_DIR/src/styles"
+  mkdir -p "$TARGET_DIR/src/context"
+  mkdir -p "$TARGET_DIR/src/services/firebase"
+  
+  # Create public directory and basic index.html
+  mkdir -p "$TARGET_DIR/public"
+  cat > "$TARGET_DIR/index.html" << EOF
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Client Portal System" />
+  <title>Client Portal</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+</head>
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+</html>
+EOF
+
+  # Create favicon
+  cat > "$TARGET_DIR/public/favicon.svg" << EOF
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+  <path d="M12 8v8"></path>
+  <path d="M8 12h8"></path>
+</svg>
+EOF
+
+  # Create React basic files with Tailwind CSS
+  echo "🎨 Creating React files with Tailwind CSS..."
+  
+  # Create API services and validators
+  echo "📄 Creating API services and validators..."
+  
+  # Create Zod validators
+  cat > "$TARGET_DIR/src/api/validators/user.ts" << EOF
+import { z } from 'zod';
+
+// User schema
+export const userSchema = z.object({
+  id: z.string().min(1),
+  email: z.string().email(),
+  displayName: z.string().optional(),
+  role: z.enum(['admin', 'user', 'guest']),
+  portalId: z.string().min(1),
+  createdAt: z.date().or(z.string().transform(str => new Date(str))),
+  updatedAt: z.date().or(z.string().transform(str => new Date(str))).optional(),
+});
+
+export type User = z.infer<typeof userSchema>;
+
+// Login input schema
+export const loginSchema = z.object({
+  email: z.string().email('Valid email required'),
+  password: z.string().min(6, 'Password must be at least 6 characters'),
+});
+
+export type LoginInput = z.infer<typeof loginSchema>;
+
+// Registration input schema
+export const registrationSchema = z.object({
+  email: z.string().email('Valid email required'),
+  password: z.string().min(6, 'Password must be at least 6 characters'),
+  displayName: z.string().min(1, 'Display name is required'),
+  portalId: z.string().min(1, 'Portal ID is required'),
+});
+
+export type RegistrationInput = z.infer<typeof registrationSchema>;
+EOF
+
+  cat > "$TARGET_DIR/src/api/validators/portal.ts" << EOF
+import { z } from 'zod';
+
+// Portal schema
+export const portalSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1, 'Portal name is required'),
+  subdomain: z.string().min(1, 'Subdomain is required')
+    .regex(/^[a-z0-9-]+$/, 'Subdomain must contain only lowercase letters, numbers, and hyphens'),
+  createdAt: z.date().or(z.string().transform(str => new Date(str))),
+  updatedAt: z.date().or(z.string().transform(str => new Date(str))).optional(),
+  ownerId: z.string().min(1),
+  status: z.enum(['active', 'inactive', 'pending']),
+  config: z.object({
+    logo: z.string().url().optional(),
+    primaryColor: z.string().regex(/^#([0-9A-F]{3}|[0-9A-F]{6})$/i).optional(),
+    secondaryColor: z.string().regex(/^#([0-9A-F]{3}|[0-9A-F]{6})$/i).optional(),
+    features: z.array(z.string()),
+    maxUsers: z.number().int().positive(),
+  }),
+});
+
+export type Portal = z.infer<typeof portalSchema>;
+
+// Portal creation schema
+export const portalCreationSchema = z.object({
+  name: z.string().min(1, 'Portal name is required'),
+  subdomain: z.string().min(1, 'Subdomain is required')
+    .regex(/^[a-z0-9-]+$/, 'Subdomain must contain only lowercase letters, numbers, and hyphens'),
+  ownerId: z.string().min(1),
+  config: z.object({
+    logo: z.string().url().optional(),
+    primaryColor: z.string().regex(/^#([0-9A-F]{3}|[0-9A-F]{6})$/i).optional(),
+    secondaryColor: z.string().regex(/^#([0-9A-F]{3}|[0-9A-F]{6})$/i).optional(),
+    features: z.array(z.string()).default([]),
+    maxUsers: z.number().int().positive().default(50),
+  }).optional(),
+});
+
+export type PortalCreationInput = z.infer<typeof portalCreationSchema>;
+EOF
+
+  # Create API client
+  cat > "$TARGET_DIR/src/api/client.ts" << EOF
+import { z } from 'zod';
+
+// API base URL from environment variables
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+
+// Error types
+export class ApiError extends Error {
+  statusCode: number;
+  data?: any;
+
+  constructor(message: string, statusCode: number, data?: any) {
+    super(message);
+    this.name = 'ApiError';
+    this.statusCode = statusCode;
+    this.data = data;
+  }
+}
+
+// Request options type
+interface RequestOptions {
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
+  headers?: Record<string, string>;
+  body?: any;
+  validateSchema?: z.ZodType<any>;
+}
+
+// Base API client
+async function apiRequest<T>(endpoint: string, options: RequestOptions): Promise<T> {
+  const { method, headers = {}, body, validateSchema } = options;
+  
+  // Get auth token from localStorage if available
+  const token = localStorage.getItem('auth_token');
+  const authHeaders: Record<string, string> = token 
+    ? { 'Authorization': `Bearer ${token}` } 
+    : {};
+  
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders,
+      ...headers,
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  const contentType = response.headers.get('Content-Type') || '';
+  const isJson = contentType.includes('application/json');
+  
+  // Parse response data
+  const data = isJson ? await response.json() : await response.text();
+  
+  // Handle error responses
+  if (!response.ok) {
+    throw new ApiError(
+      isJson && data.message ? data.message : 'API request failed',
+      response.status,
+      data
+    );
+  }
+  
+  // Validate response data if schema is provided
+  if (validateSchema && isJson) {
+    try {
+      return validateSchema.parse(data);
+    } catch (error) {
+      console.error('Response validation error:', error);
+      throw new ApiError('Invalid response data', 500, { data, validationError: error });
+    }
+  }
+  
+  return data as T;
+}
+
+// Convenience methods
+export default {
+  get: <T>(endpoint: string, options: Omit<RequestOptions, 'method' | 'body'> = {}) => 
+    apiRequest<T>(endpoint, { ...options, method: 'GET' }),
+  
+  post: <T>(endpoint: string, body: any, options: Omit<RequestOptions, 'method'> = {}) => 
+    apiRequest<T>(endpoint, { ...options, method: 'POST', body }),
+  
+  put: <T>(endpoint: string, body: any, options: Omit<RequestOptions, 'method'> = {}) => 
+    apiRequest<T>(endpoint, { ...options, method: 'PUT', body }),
+  
+  patch: <T>(endpoint: string, body: any, options: Omit<RequestOptions, 'method'> = {}) => 
+    apiRequest<T>(endpoint, { ...options, method: 'PATCH', body }),
+  
+  delete: <T>(endpoint: string, options: Omit<RequestOptions, 'method' | 'body'> = {}) => 
+    apiRequest<T>(endpoint, { ...options, method: 'DELETE' }),
+};
+EOF
+
+  # Create React Query hooks for users
+  cat > "$TARGET_DIR/src/api/queries/users.ts" << EOF
+import { useQuery } from '@tanstack/react-query';
+import apiClient from '../client';
+import { userSchema, User } from '../validators/user';
+import { z } from 'zod';
+
+// Query keys
+export const userKeys = {
+  all: ['users'] as const,
+  lists: () => [...userKeys.all, 'list'] as const,
+  list: (filters: Record<string, any>) => [...userKeys.lists(), filters] as const,
+  details: () => [...userKeys.all, 'detail'] as const,
+  detail: (id: string) => [...userKeys.details(), id] as const,
+  portalUsers: (portalId: string) => [...userKeys.lists(), { portalId }] as const,
+};
+
+// Get single user by ID
+export function useUser(userId: string) {
+  return useQuery({
+    queryKey: userKeys.detail(userId),
+    queryFn: () => apiClient.get<User>(\`/users/\${userId}\`, {
+      validateSchema: userSchema,
+    }),
+    enabled: !!userId,
+  });
+}
+
+// List users by portal
+export function usePortalUsers(portalId: string) {
+  return useQuery({
+    queryKey: userKeys.portalUsers(portalId),
+    queryFn: () => apiClient.get<User[]>(\`/portals/\${portalId}/users\`, {
+      validateSchema: z.array(userSchema),
+    }),
+    enabled: !!portalId,
+  });
+}
+
+// Get current user profile
+export function useCurrentUser() {
+  return useQuery({
+    queryKey: userKeys.detail('me'),
+    queryFn: () => apiClient.get<User>('/users/me', {
+      validateSchema: userSchema,
+    }),
+  });
+}
+EOF
+
+  # Create React Query hooks for portals
+  cat > "$TARGET_DIR/src/api/queries/portals.ts" << EOF
+import { useQuery } from '@tanstack/react-query';
+import apiClient from '../client';
+import { portalSchema, Portal } from '../validators/portal';
+import { z } from 'zod';
+
+// Query keys
+export const portalKeys = {
+  all: ['portals'] as const,
+  lists: () => [...portalKeys.all, 'list'] as const,
+  list: (filters: Record<string, any>) => [...portalKeys.lists(), filters] as const,
+  details: () => [...portalKeys.all, 'detail'] as const,
+  detail: (id: string) => [...portalKeys.details(), id] as const,
+  bySubdomain: (subdomain: string) => [...portalKeys.details(), { subdomain }] as const,
+};
+
+// Get single portal by ID
+export function usePortal(portalId: string) {
+  return useQuery({
+    queryKey: portalKeys.detail(portalId),
+    queryFn: () => apiClient.get<Portal>(\`/portals/\${portalId}\`, {
+      validateSchema: portalSchema,
+    }),
+    enabled: !!portalId,
+  });
+}
+
+// Get portal by subdomain
+export function usePortalBySubdomain(subdomain: string) {
+  return useQuery({
+    queryKey: portalKeys.bySubdomain(subdomain),
+    queryFn: () => apiClient.get<Portal>(\`/portals/subdomain/\${subdomain}\`, {
+      validateSchema: portalSchema,
+    }),
+    enabled: !!subdomain,
+  });
+}
+
+// List all portals (admin only)
+export function useAllPortals() {
+  return useQuery({
+    queryKey: portalKeys.lists(),
+    queryFn: () => apiClient.get<Portal[]>('/portals', {
+      validateSchema: z.array(portalSchema),
+    }),
+  });
+}
+
+// Get current user's portal
+export function useCurrentPortal() {
+  return useQuery({
+    queryKey: portalKeys.detail('current'),
+    queryFn: () => apiClient.get<Portal>('/portals/current', {
+      validateSchema: portalSchema,
+    }),
+  });
+}
+EOF
+
+  # Create mutations
+  cat > "$TARGET_DIR/src/api/mutations/users.ts" << EOF
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import apiClient from '../client';
+import { userSchema, loginSchema, registrationSchema, User, LoginInput, RegistrationInput } from '../validators/user';
+import { userKeys } from '../queries/users';
+import { z } from 'zod';
+
+// Login mutation
+export function useLogin() {
+  return useMutation({
+    mutationFn: async (data: LoginInput) => {
+      // Validate input
+      loginSchema.parse(data);
+      const response = await apiClient.post<{ token: string, user: User }>('/auth/login', data, {
+        validateSchema: z.object({
+          token: z.string(),
+          user: userSchema,
+        }),
+      });
+      
+      // Store token in localStorage
+      localStorage.setItem('auth_token', response.token);
+      
+      return response.user;
+    },
+  });
+}
+
+// Registration mutation
+export function useRegister() {
+  return useMutation({
+    mutationFn: async (data: RegistrationInput) => {
+      // Validate input
+      registrationSchema.parse(data);
+      const response = await apiClient.post<{ token: string, user: User }>('/auth/register', data, {
+        validateSchema: z.object({
+          token: z.string(),
+          user: userSchema,
+        }),
+      });
+      
+      // Store token in localStorage
+      localStorage.setItem('auth_token', response.token);
+      
+      return response.user;
+    },
+  });
+}
+
+// Update user profile mutation
+export function useUpdateUser() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async ({ userId, data }: { userId: string, data: Partial<User> }) => {
+      const updatedUser = await apiClient.patch<User>(\`/users/\${userId}\`, data, {
+        validateSchema: userSchema,
+      });
+      return updatedUser;
+    },
+    onSuccess: (updatedUser) => {
+      // Invalidate and refetch user data
+      queryClient.invalidateQueries({ queryKey: userKeys.detail(updatedUser.id) });
+      queryClient.invalidateQueries({ queryKey: userKeys.detail('me') });
+    },
+  });
+}
+EOF
+
+  cat > "$TARGET_DIR/src/api/mutations/portals.ts" << EOF
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import apiClient from '../client';
+import { portalSchema, portalCreationSchema, Portal, PortalCreationInput } from '../validators/portal';
+import { portalKeys } from '../queries/portals';
+import { z } from 'zod';
+
+// Create portal mutation
+export function useCreatePortal() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async (data: PortalCreationInput) => {
+      // Validate input
+      portalCreationSchema.parse(data);
+      const newPortal = await apiClient.post<Portal>('/portals', data, {
+        validateSchema: portalSchema,
+      });
+      return newPortal;
+    },
+    onSuccess: () => {
+      // Invalidate portals list
+      queryClient.invalidateQueries({ queryKey: portalKeys.lists() });
+    },
+  });
+}
+
+// Update portal mutation
+export function useUpdatePortal() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async ({ portalId, data }: { portalId: string, data: Partial<Portal> }) => {
+      const updatedPortal = await apiClient.patch<Portal>(\`/portals/\${portalId}\`, data, {
+        validateSchema: portalSchema,
+      });
+      return updatedPortal;
+    },
+    onSuccess: (updatedPortal) => {
+      // Invalidate and refetch portal data
+      queryClient.invalidateQueries({ queryKey: portalKeys.detail(updatedPortal.id) });
+      queryClient.invalidateQueries({ queryKey: portalKeys.bySubdomain(updatedPortal.subdomain) });
+    },
+  });
+}
+
+// Delete portal mutation
+export function useDeletePortal() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async (portalId: string) => {
+      await apiClient.delete(\`/portals/\${portalId}\`);
+      return portalId;
+    },
+    onSuccess: (portalId) => {
+      // Invalidate and remove portal data
+      queryClient.invalidateQueries({ queryKey: portalKeys.lists() });
+      queryClient.removeQueries({ queryKey: portalKeys.detail(portalId) });
+    },
+  });
+}
+EOF
+
+  # Create API index file
+  cat > "$TARGET_DIR/src/api/index.ts" << EOF
+// Export all queries and mutations
+export * from './queries/users';
+export * from './queries/portals';
+export * from './mutations/users';
+export * from './mutations/portals';
+export * from './validators/user';
+export * from './validators/portal';
+
+// Export client
+export { default as apiClient } from './client';
+EOF
+
+  # Create Firebase services
+  echo "📄 Creating Firebase services..."
+  
+  # Firebase Config
+  cat > "$TARGET_DIR/src/services/firebase/config.ts" << EOF
+import { initializeApp, FirebaseOptions, FirebaseApp } from 'firebase/app';
+import { getAuth, Auth } from 'firebase/auth';
+import { getFirestore, Firestore } from 'firebase/firestore';
+import { getStorage, FirebaseStorage } from 'firebase/storage';
+import { getPerformance, Performance } from 'firebase/performance';
+
+// Firebase configuration - replace with secret manager in production
+const firebaseConfig: FirebaseOptions = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
+};
+
+// Firebase singleton to manage initialization and instance access
+class Firebase {
+  private static instance: Firebase;
+  private app: FirebaseApp;
+  private auth: Auth;
+  private firestore: Firestore;
+  private storage: FirebaseStorage;
+  private performance: Performance | null = null;
+
+  private constructor() {
+    this.app = initializeApp(firebaseConfig);
+    this.auth = getAuth(this.app);
+    this.firestore = getFirestore(this.app);
+    this.storage = getStorage(this.app);
+    
+    // Only initialize performance in browser environment
+    if (typeof window !== 'undefined') {
+      this.performance = getPerformance(this.app);
+    }
+  }
+
+  public static getInstance(): Firebase {
+    if (!Firebase.instance) {
+      Firebase.instance = new Firebase();
+    }
+    return Firebase.instance;
+  }
+
+  public getApp(): FirebaseApp {
+    return this.app;
+  }
+
+  public getAuth(): Auth {
+    return this.auth;
+  }
+
+  public getFirestore(): Firestore {
+    return this.firestore;
+  }
+
+  public getStorage(): FirebaseStorage {
+    return this.storage;
+  }
+
+  public getPerformance(): Performance | null {
+    return this.performance;
+  }
+}
+
+export default Firebase.getInstance();
+EOF
+
+  # Auth Service
+  cat > "$TARGET_DIR/src/services/firebase/auth.ts" << EOF
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged,
+  User,
+  UserCredential,
+} from 'firebase/auth';
+import firebase from './config';
+
+export interface AuthUser {
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+  photoURL: string | null;
+}
+
+class AuthService {
+  private auth = firebase.getAuth();
+
+  /**
+   * Create a new user with email and password
+   */
+  async register(email: string, password: string): Promise<UserCredential> {
+    return createUserWithEmailAndPassword(this.auth, email, password);
+  }
+
+  /**
+   * Sign in existing user with email and password
+   */
+  async login(email: string, password: string): Promise<UserCredential> {
+    return signInWithEmailAndPassword(this.auth, email, password);
+  }
+
+  /**
+   * Sign out the current user
+   */
+  async logout(): Promise<void> {
+    return signOut(this.auth);
+  }
+
+  /**
+   * Get the current authenticated user
+   */
+  getCurrentUser(): User | null {
+    return this.auth.currentUser;
+  }
+
+  /**
+   * Subscribe to auth state changes
+   */
+  onAuthStateChanged(callback: (user: User | null) => void): () => void {
+    return onAuthStateChanged(this.auth, callback);
+  }
+}
+
+export default new AuthService();
+EOF
+
+  # Performance Monitoring Service
+  cat > "$TARGET_DIR/src/services/firebase/performance.ts" << EOF
+import { trace, Trace } from 'firebase/performance';
+import firebase from './config';
+
+class PerformanceService {
+  private performance = firebase.getPerformance();
+  private traces: Record<string, Trace> = {};
+
+  /**
+   * Start measuring a performance trace
+   */
+  startTrace(traceName: string): void {
+    if (!this.performance) return;
+    
+    const newTrace = trace(this.performance, traceName);
+    this.traces[traceName] = newTrace;
+    newTrace.start();
+  }
+
+  /**
+   * Stop measuring a performance trace
+   */
+  stopTrace(traceName: string): void {
+    if (!this.performance || !this.traces[traceName]) return;
+    
+    this.traces[traceName].stop();
+    delete this.traces[traceName];
+  }
+
+  /**
+   * Add a custom attribute to a trace
+   */
+  putTraceAttribute(traceName: string, attribute: string, value: string): void {
+    if (!this.performance || !this.traces[traceName]) return;
+    
+    this.traces[traceName].putAttribute(attribute, value);
+  }
+
+  /**
+   * Increment a custom metric for a trace
+   */
+  incrementMetric(traceName: string, metricName: string, value = 1): void {
+    if (!this.performance || !this.traces[traceName]) return;
+    
+    this.traces[traceName].incrementMetric(metricName, value);
+  }
+}
+
+export default new PerformanceService();
+EOF
+
+  # Error Reporting Service
+  cat > "$TARGET_DIR/src/services/firebase/error.ts" << EOF
+import { getAnalytics, logEvent } from 'firebase/analytics';
+import firebase from './config';
+
+class ErrorReportingService {
+  private analytics = getAnalytics(firebase.getApp());
+
+  /**
+   * Report an error to Firebase Analytics
+   */
+  reportError(error: Error, context: Record<string, any> = {}): void {
+    console.error('Error occurred:', error);
+    
+    try {
+      // Log to Firebase Analytics
+      logEvent(this.analytics, 'app_exception', {
+        error_name: error.name,
+        error_message: error.message,
+        error_stack: error.stack,
+        ...context,
+      });
+      
+      // In a production environment, you might want to use a dedicated error reporting service
+      // like Firebase Crashlytics or a third-party service
+    } catch (loggingError) {
+      console.error('Failed to report error:', loggingError);
+    }
+  }
+
+  /**
+   * Create an error boundary component wrapper
+   */
+  withErrorBoundary<T>(Component: React.ComponentType<T>): React.ComponentType<T> {
+    const self = this;
+    
+    return class ErrorBoundary extends React.Component<T, { hasError: boolean }> {
+      constructor(props: T) {
+        super(props);
+        this.state = { hasError: false };
+      }
+
+      static getDerivedStateFromError(): { hasError: boolean } {
+        return { hasError: true };
+      }
+
+      componentDidCatch(error: Error, info: React.ErrorInfo): void {
+        self.reportError(error, { componentStack: info.componentStack });
+      }
+
+      render(): React.ReactNode {
+        if (this.state.hasError) {
+          return <div>Something went wrong. Please try again later.</div>;
+        }
+        return <Component {...this.props} />;
+      }
+    };
+  }
+}
+
+export default new ErrorReportingService();
+EOF
+
+  # Firebase index file
+  cat > "$TARGET_DIR/src/services/firebase/index.ts" << EOF
+import config from './config';
+import auth from './auth';
+import performance from './performance';
+import errorReporting from './error';
+
+export { config, auth, performance, errorReporting };
+
+export default {
+  config,
+  auth,
+  performance,
+  errorReporting,
+};
+EOF
+
+  cat > "$TARGET_DIR/src/main.tsx" << EOF
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { performance } from './services/firebase';
+import App from './App';
+import './index.css';
+
+// Initialize performance monitoring
+performance.startTrace('app_start');
+
+// Create React Query client
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 5 * 60 * 1000, // 5 minutes
+      refetchOnWindowFocus: false,
+    },
+  },
+});
+
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <QueryClientProvider client={queryClient}>
+      <App />
+    </QueryClientProvider>
+  </React.StrictMode>,
+);
+
+// Stop performance trace after initial render
+window.addEventListener('load', () => {
+  performance.stopTrace('app_start');
+});
+EOF
+
+  # Create routing and app structure
+  
+  # Create app context for auth state
+  cat > "$TARGET_DIR/src/context/auth-context.tsx" << EOF
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import { User } from 'firebase/auth';
+import { auth as firebaseAuth } from '../services/firebase';
+
+interface AuthContextProps {
+  user: User | null;
+  loading: boolean;
+  login: (email: string, password: string) => Promise<void>;
+  register: (email: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
+}
+
+const AuthContext = createContext<AuthContextProps | undefined>(undefined);
+
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const unsubscribe = firebaseAuth.onAuthStateChanged((user) => {
+      setUser(user);
+      setLoading(false);
+    });
+
+    return unsubscribe;
+  }, []);
+
+  const login = async (email: string, password: string): Promise<void> => {
+    try {
+      await firebaseAuth.login(email, password);
+    } catch (error) {
+      console.error('Login error:', error);
+      throw error;
+    }
+  };
+
+  const register = async (email: string, password: string): Promise<void> => {
+    try {
+      await firebaseAuth.register(email, password);
+    } catch (error) {
+      console.error('Registration error:', error);
+      throw error;
+    }
+  };
+
+  const logout = async (): Promise<void> => {
+    try {
+      await firebaseAuth.logout();
+    } catch (error) {
+      console.error('Logout error:', error);
+      throw error;
+    }
+  };
+
+  const value = {
+    user,
+    loading,
+    login,
+    register,
+    logout
+  };
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+};
+
+export const useAuth = (): AuthContextProps => {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};
+EOF
+
+  # Create Zustand store
+  cat > "$TARGET_DIR/src/store/index.ts" << EOF
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
+
+interface UserProfile {
+  displayName?: string;
+  email?: string;
+  photoURL?: string;
+  role?: string;
+  portalId?: string;
+}
+
+interface AppState {
+  theme: 'light' | 'dark';
+  userProfile: UserProfile | null;
+  isInitialized: boolean;
+  portalConfig: Record<string, any> | null;
+  actions: {
+    setTheme: (theme: 'light' | 'dark') => void;
+    setUserProfile: (profile: UserProfile | null) => void;
+    setInitialized: (initialized: boolean) => void;
+    setPortalConfig: (config: Record<string, any> | null) => void;
+    reset: () => void;
+  };
+}
+
+const initialState = {
+  theme: 'light' as const,
+  userProfile: null,
+  isInitialized: false,
+  portalConfig: null,
+};
+
+export const useAppStore = create<AppState>()(
+  persist(
+    (set) => ({
+      ...initialState,
+      actions: {
+        setTheme: (theme) => set({ theme }),
+        setUserProfile: (userProfile) => set({ userProfile }),
+        setInitialized: (isInitialized) => set({ isInitialized }),
+        setPortalConfig: (portalConfig) => set({ portalConfig }),
+        reset: () => set(initialState),
+      },
+    }),
+    {
+      name: 'app-storage',
+      partialize: (state) => ({
+        theme: state.theme,
+        userProfile: state.userProfile,
+        portalConfig: state.portalConfig,
+      }),
+    }
+  )
+);
+
+// Helper hooks for easier access to specific store parts
+export const useUserProfile = () => {
+  const userProfile = useAppStore((state) => state.userProfile);
+  const setUserProfile = useAppStore((state) => state.actions.setUserProfile);
+  return { userProfile, setUserProfile };
+};
+
+export const usePortalConfig = () => {
+  const portalConfig = useAppStore((state) => state.portalConfig);
+  const setPortalConfig = useAppStore((state) => state.actions.setPortalConfig);
+  return { portalConfig, setPortalConfig };
+};
+
+export const useTheme = () => {
+  const theme = useAppStore((state) => state.theme);
+  const setTheme = useAppStore((state) => state.actions.setTheme);
+  return { theme, setTheme };
+};
+EOF
+
+  # Create pages directory structure
+  mkdir -p "$TARGET_DIR/src/pages/auth"
+  mkdir -p "$TARGET_DIR/src/pages/dashboard"
+  mkdir -p "$TARGET_DIR/src/pages/portal"
+  
+  # Create basic pages
+  cat > "$TARGET_DIR/src/pages/auth/login.tsx" << EOF
+import React, { useState } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
+import { useAuth } from '../../context/auth-context';
+
+export default function Login() {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const { login } = useAuth();
+  const navigate = useNavigate();
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+
+    try {
+      await login(email, password);
+      navigate('/dashboard');
+    } catch (err) {
+      setError('Invalid email or password');
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-md w-full space-y-8">
+        <div>
+          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
+            Sign in to your account
+          </h2>
+        </div>
+        
+        {error && (
+          <div className="rounded-md bg-red-50 p-4">
+            <div className="text-sm text-red-700">{error}</div>
+          </div>
+        )}
+        
+        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
+          <input type="hidden" name="remember" defaultValue="true" />
+          <div className="rounded-md shadow-sm -space-y-px">
+            <div>
+              <label htmlFor="email-address" className="sr-only">
+                Email address
+              </label>
+              <input
+                id="email-address"
+                name="email"
+                type="email"
+                autoComplete="email"
+                required
+                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
+                placeholder="Email address"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
+            <div>
+              <label htmlFor="password" className="sr-only">
+                Password
+              </label>
+              <input
+                id="password"
+                name="password"
+                type="password"
+                autoComplete="current-password"
+                required
+                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
+                placeholder="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div>
+            <button
+              type="submit"
+              disabled={loading}
+              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
+            >
+              Sign in
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+EOF
+
+  cat > "$TARGET_DIR/src/pages/dashboard/index.tsx" << EOF
+import React from 'react';
+import { useAuth } from '../../context/auth-context';
+
+export default function Dashboard() {
+  const { user, logout } = useAuth();
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <header className="py-6 bg-white shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center">
+          <h1 className="text-2xl font-bold text-indigo-600">Client Portal Dashboard</h1>
+          <button
+            onClick={() => logout()}
+            className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700"
+          >
+            Sign Out
+          </button>
+        </div>
+      </header>
+      
+      <main className="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
+        <div className="bg-white shadow overflow-hidden rounded-lg">
+          <div className="px-4 py-5 sm:p-6">
+            <h2 className="text-lg font-medium text-gray-900">Welcome, {user?.email}</h2>
+            <p className="mt-1 text-sm text-gray-500">
+              This is your client portal dashboard.
+            </p>
+            
+            <div className="mt-6 border-t border-gray-200 pt-6">
+              <h3 className="text-lg font-medium text-gray-900">Quick Actions</h3>
+              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="bg-indigo-50 p-4 rounded-lg">
+                  <h4 className="text-indigo-800 font-medium">View Reports</h4>
+                  <p className="text-indigo-600 text-sm mt-1">Access your latest reports and analytics</p>
+                </div>
+                <div className="bg-indigo-50 p-4 rounded-lg">
+                  <h4 className="text-indigo-800 font-medium">Manage Users</h4>
+                  <p className="text-indigo-600 text-sm mt-1">Add or remove users from your portal</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}
+EOF
+
+  # Create the routes file
+  cat > "$TARGET_DIR/src/routes.tsx" << EOF
+import React from 'react';
+import { Routes, Route, Navigate } from 'react-router-dom';
+import { useAuth } from './context/auth-context';
+
+// Pages
+import Login from './pages/auth/login';
+import Dashboard from './pages/dashboard';
+
+// Protected route wrapper
+const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user, loading } = useAuth();
+  
+  if (loading) {
+    return <div className="w-full h-screen flex items-center justify-center">Loading...</div>;
+  }
+  
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+  
+  return <>{children}</>;
+};
+
+// Public route wrapper (redirects if already authenticated)
+const PublicRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user, loading } = useAuth();
+  
+  if (loading) {
+    return <div className="w-full h-screen flex items-center justify-center">Loading...</div>;
+  }
+  
+  if (user) {
+    return <Navigate to="/dashboard" replace />;
+  }
+  
+  return <>{children}</>;
+};
+
+// Main routes component
+export default function AppRoutes() {
+  return (
+    <Routes>
+      {/* Public routes */}
+      <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
+      
+      {/* Protected routes */}
+      <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+      
+      {/* Redirect root to dashboard or login */}
+      <Route path="/" element={<Navigate to="/dashboard" replace />} />
+      
+      {/* Catch-all route for 404 */}
+      <Route path="*" element={<div>Page not found</div>} />
+    </Routes>
+  );
+}
+EOF
+
+  # Create App component
+  cat > "$TARGET_DIR/src/App.tsx" << EOF
+import React from 'react';
+import { BrowserRouter } from 'react-router-dom';
+import { ErrorBoundary } from 'react-error-boundary';
+import { AuthProvider } from './context/auth-context';
+import { errorReporting } from './services/firebase';
+import AppRoutes from './routes';
+
+// Error fallback component
+const ErrorFallback = ({ error, resetErrorBoundary }: any) => {
+  // Report the error
+  React.useEffect(() => {
+    errorReporting.reportError(error);
+  }, [error]);
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4 py-12 sm:px-6 lg:px-8">
+      <div className="max-w-md w-full space-y-8 text-center">
+        <h2 className="text-3xl font-extrabold text-red-600">Something went wrong</h2>
+        <p className="mt-2 text-gray-600">We've encountered an error and our team has been notified.</p>
+        <div className="mt-4">
+          <button
+            onClick={resetErrorBoundary}
+            className="px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700"
+          >
+            Try again
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+function App() {
+  return (
+    <ErrorBoundary FallbackComponent={ErrorFallback}>
+      <BrowserRouter>
+        <AuthProvider>
+          <AppRoutes />
+        </AuthProvider>
+      </BrowserRouter>
+    </ErrorBoundary>
+  );
+}
+
+export default App;
+EOF
+
+  # Create Tailwind CSS entry point
+  cat > "$TARGET_DIR/src/index.css" << EOF
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+EOF
+
+  # Create tailwind.config.js
+  cat > "$TARGET_DIR/tailwind.config.js" << EOF
+/** @type {import('tailwindcss').Config} */
+export default {
+  content: [
+    "./index.html",
+    "./src/**/*.{js,ts,jsx,tsx}",
+  ],
+  theme: {
+    extend: {
+      colors: {
+        primary: {
+          50: '#EFF6FF',
+          100: '#DBEAFE',
+          200: '#BFDBFE',
+          300: '#93C5FD',
+          400: '#60A5FA',
+          500: '#3B82F6',
+          600: '#2563EB',
+          700: '#1D4ED8',
+          800: '#1E40AF',
+          900: '#1E3A8A',
+          950: '#172554',
+        },
+      },
+    },
+  },
+  plugins: [],
+}
+EOF
+
+  # Create postcss.config.js
+  cat > "$TARGET_DIR/postcss.config.js" << EOF
+export default {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {},
+  },
+}
+EOF
+
+  # Create vite config
+  cat > "$TARGET_DIR/vite.config.ts" << EOF
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import path from 'path';
+
+// https://vitejs.dev/config/
+export default defineConfig({
+  plugins: [react()],
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+      '@components': path.resolve(__dirname, './src/components'),
+      '@pages': path.resolve(__dirname, './src/pages'),
+      '@hooks': path.resolve(__dirname, './src/hooks'),
+      '@utils': path.resolve(__dirname, './src/utils'),
+      '@api': path.resolve(__dirname, './src/api'),
+      '@styles': path.resolve(__dirname, './src/styles'),
+      '@context': path.resolve(__dirname, './src/context'),
+      '@assets': path.resolve(__dirname, './src/assets'),
+    },
+  },
+});
+EOF
+
+  # Create a sample component
+  mkdir -p "$TARGET_DIR/src/components/ui"
+  cat > "$TARGET_DIR/src/components/ui/Button.tsx" << EOF
+import React, { ButtonHTMLAttributes } from 'react';
+
+interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?: 'primary' | 'secondary' | 'outline';
+  size?: 'sm' | 'md' | 'lg';
+}
+
+export const Button: React.FC<ButtonProps> = ({
+  children,
+  variant = 'primary',
+  size = 'md',
+  className = '',
+  ...props
+}) => {
+  const baseClasses = "inline-flex items-center justify-center rounded-md font-medium focus:outline-none focus:ring-2 focus:ring-offset-2";
+  
+  const variantClasses = {
+    primary: "bg-indigo-600 text-white hover:bg-indigo-700 focus:ring-indigo-500",
+    secondary: "bg-gray-200 text-gray-900 hover:bg-gray-300 focus:ring-gray-500",
+    outline: "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 focus:ring-indigo-500"
+  };
+  
+  const sizeClasses = {
+    sm: "px-3 py-1.5 text-sm",
+    md: "px-4 py-2 text-sm",
+    lg: "px-5 py-2.5 text-base"
+  };
+  
+  const classes = \`\${baseClasses} \${variantClasses[variant]} \${sizeClasses[size]} \${className}\`;
+  
+  return (
+    <button className={classes} {...props}>
+      {children}
+    </button>
+  );
+};
+
+export default Button;
+EOF
+
+elif [[ "$SERVICE_TYPE" == "backend" ]]; then
+  # Create Backend directories
+  mkdir -p "$TARGET_DIR/src/controllers"
+  mkdir -p "$TARGET_DIR/src/routes"
+  mkdir -p "$TARGET_DIR/src/models"
+  mkdir -p "$TARGET_DIR/src/middleware"
+  mkdir -p "$TARGET_DIR/src/utils"
+  mkdir -p "$TARGET_DIR/src/config"
+  mkdir -p "$TARGET_DIR/src/services"
+  
+  # Create server entry point with Swagger docs and subdomain routing
+  cat > "$TARGET_DIR/src/index.ts" << EOF
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import { config } from 'dotenv';
+import subdomain from 'express-subdomain';
+import swaggerJsdoc from 'swagger-jsdoc';
+import swaggerUi from 'swagger-ui-express';
+import routes from './routes';
+import portalRoutes from './routes/portal.routes';
+import { initializeFirebaseAdmin } from './services/firebase-admin';
+
+// Load environment variables
+config();
+
+// Initialize Firebase Admin
+initializeFirebaseAdmin();
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+const API_PREFIX = process.env.API_PREFIX || '/api';
+
+// Swagger/OpenAPI configuration
+const swaggerOptions = {
+  definition: {
+    openapi: '3.0.0',
+    info: {
+      title: 'Client Portal System API',
+      version: '1.0.0',
+      description: 'API documentation for Client Portal System',
+      contact: {
+        name: 'API Support',
+        email: 'support@example.com',
+      },
+    },
+    servers: [
+      {
+        url: `http://localhost:\${PORT}\${API_PREFIX}`,
+        description: 'Development server',
+      },
+      {
+        url: `https://api.\${process.env.BASE_DOMAIN || 'example.com'}\${API_PREFIX}`,
+        description: 'Production server',
+      },
+    ],
+    components: {
+      securitySchemes: {
+        bearerAuth: {
+          type: 'http',
+          scheme: 'bearer',
+          bearerFormat: 'JWT',
+        },
+      },
+    },
+    security: [{
+      bearerAuth: [],
+    }],
+  },
+  apis: ['./src/routes/*.ts', './src/models/*.ts'],
+};
+
+const swaggerSpec = swaggerJsdoc(swaggerOptions);
+
+// Middleware
+app.use(helmet({
+  contentSecurityPolicy: process.env.NODE_ENV === 'production' ? undefined : false,
+}));
+app.use(cors());
+app.use(express.json());
+
+// Add request logging in development
+if (process.env.NODE_ENV !== 'production') {
+  app.use((req, res, next) => {
+    console.info(\`\${req.method} \${req.url}\`);
+    next();
+  });
+}
+
+// Swagger documentation
+app.use(\`\${API_PREFIX}/docs\`, swaggerUi.serve);
+app.get(\`\${API_PREFIX}/docs\`, swaggerUi.setup(swaggerSpec));
+app.get(\`\${API_PREFIX}/swagger.json\`, (req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  res.send(swaggerSpec);
+});
+
+// Setup subdomain routing for portals
+const { BASE_DOMAIN = 'localhost' } = process.env;
+if (BASE_DOMAIN !== 'localhost') {
+  app.use(subdomain('*', (req, res, next) => {
+    // Extract subdomain from host
+    const host = req.headers.host || '';
+    const parts = host.split('.');
+    if (parts.length > 2) {
+      req.subdomain = parts[0];
+    }
+    next();
+  }));
+
+  // Portal-specific routes on subdomains
+  app.use(subdomain('*', portalRoutes));
+} else {
+  // For local development, simulate subdomain routing
+  app.use('/portal/:subdomain', (req, res, next) => {
+    req.subdomain = req.params.subdomain;
+    next();
+  }, portalRoutes);
+}
+
+// Main API Routes
+app.use(API_PREFIX, routes);
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok' });
+});
+
+// Error handling middleware
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error('Unhandled error:', err);
+  
+  const statusCode = err.statusCode || 500;
+  const message = err.message || 'Internal Server Error';
+  
+  res.status(statusCode).json({
+    error: {
+      message,
+      status: statusCode,
+      timestamp: new Date().toISOString(),
+    },
+  });
+});
+
+// Start server
+app.listen(PORT, () => {
+  console.info(\`Server running on port \${PORT}\`);
+  console.info(\`API docs available at http://localhost:\${PORT}\${API_PREFIX}/docs\`);
+});
+
+export default app;
+EOF
+
+  # Create routes index
+  cat > "$TARGET_DIR/src/routes/index.ts" << EOF
+import { Router } from 'express';
+import portalRoutes from './portal.routes';
+import userRoutes from './user.routes';
+
+const router = Router();
+
+router.use('/portals', portalRoutes);
+router.use('/users', userRoutes);
+
+export default router;
+EOF
+
+  # Create sample routes
+  cat > "$TARGET_DIR/src/routes/portal.routes.ts" << EOF
+import { Router } from 'express';
+import { getPortals, getPortalById, createPortal } from '../controllers/portal.controller';
+import { authMiddleware } from '../middleware/auth.middleware';
+
+const router = Router();
+
+router.get('/', authMiddleware, getPortals);
+router.get('/:id', authMiddleware, getPortalById);
+router.post('/', authMiddleware, createPortal);
+
+export default router;
+EOF
+
+  cat > "$TARGET_DIR/src/routes/user.routes.ts" << EOF
+import { Router } from 'express';
+import { getUsers, getUserById } from '../controllers/user.controller';
+import { authMiddleware } from '../middleware/auth.middleware';
+
+const router = Router();
+
+router.get('/', authMiddleware, getUsers);
+router.get('/:id', authMiddleware, getUserById);
+
+export default router;
+EOF
+
+  # Create sample controllers
+  cat > "$TARGET_DIR/src/controllers/portal.controller.ts" << EOF
+import { Request, Response } from 'express';
+
+export const getPortals = async (req: Request, res: Response): Promise<void> => {
+  try {
+    // Placeholder: Fetch portals from database
+    res.status(200).json({ message: 'Portals fetched successfully', data: [] });
+  } catch (error) {
+    console.error('Error fetching portals:', error);
+    res.status(500).json({ message: 'Failed to fetch portals' });
+  }
+};
+
+export const getPortalById = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    // Placeholder: Fetch portal by ID from database
+    res.status(200).json({ message: \`Portal \${id} fetched successfully\`, data: { id } });
+  } catch (error) {
+    console.error('Error fetching portal:', error);
+    res.status(500).json({ message: 'Failed to fetch portal' });
+  }
+};
+
+export const createPortal = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const portalData = req.body;
+    // Placeholder: Create portal in database
+    res.status(201).json({ message: 'Portal created successfully', data: { id: 'new-portal-id', ...portalData } });
+  } catch (error) {
+    console.error('Error creating portal:', error);
+    res.status(500).json({ message: 'Failed to create portal' });
+  }
+};
+EOF
+
+  cat > "$TARGET_DIR/src/controllers/user.controller.ts" << EOF
+import { Request, Response } from 'express';
+
+export const getUsers = async (req: Request, res: Response): Promise<void> => {
+  try {
+    // Placeholder: Fetch users from database
+    res.status(200).json({ message: 'Users fetched successfully', data: [] });
+  } catch (error) {
+    console.error('Error fetching users:', error);
+    res.status(500).json({ message: 'Failed to fetch users' });
+  }
+};
+
+export const getUserById = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    // Placeholder: Fetch user by ID from database
+    res.status(200).json({ message: \`User \${id} fetched successfully\`, data: { id } });
+  } catch (error) {
+    console.error('Error fetching user:', error);
+    res.status(500).json({ message: 'Failed to fetch user' });
+  }
+};
+EOF
+
+  # Create middleware
+  cat > "$TARGET_DIR/src/middleware/auth.middleware.ts" << EOF
+import { Request, Response, NextFunction } from 'express';
+
+export const authMiddleware = (req: Request, res: Response, next: NextFunction): void => {
+  try {
+    // Placeholder: Authentication logic will go here
+    // For now, just pass through
+    next();
+  } catch (error) {
+    console.error('Authentication error:', error);
+    res.status(401).json({ message: 'Unauthorized' });
+  }
+};
+EOF
+
+  # Create Firebase Admin service
+  mkdir -p "$TARGET_DIR/src/services/firebase-admin"
+  
+  cat > "$TARGET_DIR/src/services/firebase-admin/index.ts" << EOF
+import admin from 'firebase-admin';
+import { applicationDefault } from 'firebase-admin/app';
+import { getFirestore } from 'firebase-admin/firestore';
+import { getAuth } from 'firebase-admin/auth';
+import { getStorage } from 'firebase-admin/storage';
+import { getPerformance } from 'firebase-admin/performance';
+import { config } from 'dotenv';
+
+config();
+
+/**
+ * Initialize Firebase Admin SDK with proper credentials
+ * Uses Google Application Default Credentials in production
+ * Falls back to service account credentials in .env for development
+ */
+export const initializeFirebaseAdmin = (): void => {
+  if (admin.apps.length) return;
+
+  try {
+    // Determine credentials to use
+    let credential;
+    
+    if (process.env.NODE_ENV === 'production') {
+      // In production, use Google Default Application Credentials
+      // This works with Google Cloud and uses the service account of the 
+      // compute resource running the service
+      credential = applicationDefault();
+    } else {
+      // In development, use environment variables for service account
+      // GOOGLE_APPLICATION_CREDENTIALS can be set to the path of a service account key file
+      if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+        credential = applicationDefault();
+      } else {
+        // Fallback to directly specified credentials
+        credential = admin.credential.cert({
+          projectId: process.env.FIREBASE_PROJECT_ID,
+          privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\\\n/g, '\\n'),
+          clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+        });
+      }
+    }
+
+    // Initialize the app
+    admin.initializeApp({
+      credential,
+      storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
+    });
+
+    console.info('Firebase Admin SDK initialized successfully');
+  } catch (error) {
+    console.error('Firebase Admin SDK initialization error:', error);
+    throw error;
+  }
+};
+
+// Firebase Admin Services
+export const db = (): admin.firestore.Firestore => getFirestore();
+export const auth = (): admin.auth.Auth => getAuth();
+export const storage = (): admin.storage.Storage => getStorage();
+
+// Firebase Admin SDK
+export { admin };
+
+// Performance monitoring for server
+export class ServerPerformance {
+  private static instance: ServerPerformance;
+  
+  private constructor() {
+    try {
+      // Initialize Performance Monitoring
+      getPerformance();
+      console.info('Firebase Performance Monitoring initialized');
+    } catch (error) {
+      console.warn('Firebase Performance Monitoring initialization failed:', error);
+    }
+  }
+  
+  public static getInstance(): ServerPerformance {
+    if (!ServerPerformance.instance) {
+      ServerPerformance.instance = new ServerPerformance();
+    }
+    return ServerPerformance.instance;
+  }
+  
+  startTrace(name: string): admin.performance.Trace {
+    try {
+      const performance = getPerformance();
+      return performance.trace(name);
+    } catch (error) {
+      console.warn(\`Failed to start trace \${name}:\`, error);
+      // Return dummy trace that does nothing
+      return {
+        start: () => {},
+        stop: () => {},
+        getAttribute: () => '',
+        putAttribute: () => {},
+        removeAttribute: () => {},
+        getMetric: () => 0,
+        putMetric: () => {},
+        incrementMetric: () => {},
+      } as admin.performance.Trace;
+    }
+  }
+}
+
+export const serverPerformance = ServerPerformance.getInstance();
+EOF
+
+  # Create zod schema validation middleware
+  cat > "$TARGET_DIR/src/middleware/validate.ts" << EOF
+import { Request, Response, NextFunction } from 'express';
+import { AnyZodObject, ZodError } from 'zod';
+
+/**
+ * Middleware factory for validating request data against Zod schemas
+ */
+export const validate = 
+  (schema: AnyZodObject, source: 'body' | 'query' | 'params' = 'body') => 
+  (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const data = schema.parse(req[source]);
+      req[source] = data; // Replace with validated data
+      next();
+    } catch (error) {
+      if (error instanceof ZodError) {
+        return res.status(400).json({
+          error: {
+            message: 'Validation failed',
+            details: error.errors,
+          },
+        });
+      }
+      next(error);
+    }
+  };
+EOF
+
+  # Create authentication middleware
+  cat > "$TARGET_DIR/src/middleware/auth.middleware.ts" << EOF
+import { Request, Response, NextFunction } from 'express';
+import { auth } from '../services/firebase-admin';
+import { serverPerformance } from '../services/firebase-admin';
+
+export interface AuthenticatedRequest extends Request {
+  user?: {
+    uid: string;
+    email?: string;
+    role?: string;
+    portalId?: string;
+    isAdmin?: boolean;
+  };
+}
+
+/**
+ * Middleware to authenticate users with Firebase Auth
+ */
+export const authMiddleware = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  const trace = serverPerformance.startTrace('auth_middleware');
+  trace.start();
+  
+  try {
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      trace.putAttribute('auth_status', 'missing_token');
+      trace.stop();
+      res.status(401).json({ error: { message: 'Missing authentication token' } });
+      return;
+    }
+    
+    const token = authHeader.split('Bearer ')[1];
+    
+    // Verify token with Firebase Auth
+    const decodedToken = await auth().verifyIdToken(token);
+    
+    // Set user info in request
+    req.user = {
+      uid: decodedToken.uid,
+      email: decodedToken.email,
+      role: decodedToken.role || 'user',
+      portalId: decodedToken.portalId,
+      isAdmin: decodedToken.role === 'admin' || decodedToken.admin === true,
+    };
+    
+    trace.putAttribute('auth_status', 'success');
+    trace.stop();
+    next();
+  } catch (error) {
+    console.error('Authentication error:', error);
+    trace.putAttribute('auth_status', 'error');
+    trace.putAttribute('error_type', error.name || 'unknown');
+    trace.stop();
+    res.status(401).json({ error: { message: 'Invalid authentication token' } });
+  }
+};
+
+/**
+ * Middleware to ensure user has admin role
+ */
+export const adminOnly = (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): void => {
+  if (!req.user || !req.user.isAdmin) {
+    res.status(403).json({ error: { message: 'Admin access required' } });
+    return;
+  }
+  
+  next();
+};
+
+/**
+ * Middleware to ensure user belongs to a specific portal
+ */
+export const portalAccess = (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): void => {
+  const portalId = req.params.portalId || req.body.portalId;
+  
+  if (!req.user) {
+    res.status(401).json({ error: { message: 'Authentication required' } });
+    return;
+  }
+  
+  // Allow admins to access any portal
+  if (req.user.isAdmin) {
+    next();
+    return;
+  }
+  
+  // Check if user has access to the requested portal
+  if (!req.user.portalId || req.user.portalId !== portalId) {
+    res.status(403).json({ error: { message: 'Access denied to this portal' } });
+    return;
+  }
+  
+  next();
+};
+EOF
+
+elif [[ "$SERVICE_TYPE" == "full" ]]; then
+  # Create Shared package directories
+  mkdir -p "$TARGET_DIR/src/types"
+  mkdir -p "$TARGET_DIR/src/utils"
+  mkdir -p "$TARGET_DIR/src/constants"
+  mkdir -p "$TARGET_DIR/src/models"
+  
+  # Create shared models with Zod schemas
+  cat > "$TARGET_DIR/src/models/portal.ts" << EOF
+import { z } from 'zod';
+
+export const portalStatusEnum = z.enum(['active', 'inactive', 'pending']);
+export type PortalStatus = z.infer<typeof portalStatusEnum>;
+
+export const portalConfigSchema = z.object({
+  logo: z.string().url().optional(),
+  primaryColor: z.string().regex(/^#([0-9A-F]{3}|[0-9A-F]{6})$/i).optional(),
+  secondaryColor: z.string().regex(/^#([0-9A-F]{3}|[0-9A-F]{6})$/i).optional(),
+  features: z.array(z.string()).default([]),
+  maxUsers: z.number().int().positive().default(50),
+});
+
+export type PortalConfig = z.infer<typeof portalConfigSchema>;
+
+export const portalSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1, 'Portal name is required'),
+  subdomain: z.string().min(1, 'Subdomain is required')
+    .regex(/^[a-z0-9-]+$/, 'Subdomain must contain only lowercase letters, numbers, and hyphens'),
+  createdAt: z.date().or(z.string().transform(str => new Date(str))),
+  updatedAt: z.date().or(z.string().transform(str => new Date(str))).optional(),
+  ownerId: z.string().min(1),
+  status: portalStatusEnum,
+  config: portalConfigSchema,
+});
+
+export type Portal = z.infer<typeof portalSchema>;
+
+export const portalCreationSchema = z.object({
+  name: z.string().min(1, 'Portal name is required'),
+  subdomain: z.string().min(1, 'Subdomain is required')
+    .regex(/^[a-z0-9-]+$/, 'Subdomain must contain only lowercase letters, numbers, and hyphens'),
+  ownerId: z.string().min(1),
+  config: portalConfigSchema.optional(),
+});
+
+export type PortalCreationInput = z.infer<typeof portalCreationSchema>;
+EOF
+
+  cat > "$TARGET_DIR/src/models/user.ts" << EOF
+import { z } from 'zod';
+
+export const userRoleEnum = z.enum(['admin', 'user', 'guest']);
+export type UserRole = z.infer<typeof userRoleEnum>;
+
+export const userSchema = z.object({
+  id: z.string().min(1),
+  email: z.string().email(),
+  displayName: z.string().optional(),
+  role: userRoleEnum,
+  portalId: z.string().min(1),
+  createdAt: z.date().or(z.string().transform(str => new Date(str))),
+  updatedAt: z.date().or(z.string().transform(str => new Date(str))).optional(),
+  lastLogin: z.date().or(z.string().transform(str => new Date(str))).optional(),
+  photoURL: z.string().url().optional(),
+  phoneNumber: z.string().optional(),
+  disabled: z.boolean().default(false),
+});
+
+export type User = z.infer<typeof userSchema>;
+
+export const loginSchema = z.object({
+  email: z.string().email('Valid email required'),
+  password: z.string().min(6, 'Password must be at least 6 characters'),
+});
+
+export type LoginInput = z.infer<typeof loginSchema>;
+
+export const registrationSchema = z.object({
+  email: z.string().email('Valid email required'),
+  password: z.string().min(6, 'Password must be at least 6 characters'),
+  displayName: z.string().min(1, 'Display name is required'),
+  portalId: z.string().min(1, 'Portal ID is required'),
+  role: userRoleEnum.default('user'),
+});
+
+export type RegistrationInput = z.infer<typeof registrationSchema>;
+
+export const userUpdateSchema = z.object({
+  displayName: z.string().optional(),
+  email: z.string().email().optional(),
+  photoURL: z.string().url().optional(),
+  phoneNumber: z.string().optional(),
+  role: userRoleEnum.optional(),
+  disabled: z.boolean().optional(),
+});
+
+export type UserUpdateInput = z.infer<typeof userUpdateSchema>;
+EOF
+
+  # Create index file to export all models
+  cat > "$TARGET_DIR/src/models/index.ts" << EOF
+export * from './portal';
+export * from './user';
+EOF
+
+  # Create api-types file for common types
+  cat > "$TARGET_DIR/src/types/api-types.ts" << EOF
+// API Response Types
+export interface ApiResponse<T> {
+  data: T;
+  message?: string;
+}
+
+export interface ErrorResponse {
+  error: {
+    message: string;
+    status: number;
+    details?: any;
+  };
+}
+
+export interface PaginatedResponse<T> {
+  data: T[];
+  pagination: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}
+
+// Generic Query Parameters
+export interface QueryParams {
+  page?: number;
+  limit?: number;
+  sort?: string;
+  order?: 'asc' | 'desc';
+  search?: string;
+  filter?: Record<string, any>;
+}
+EOF
+
+  # Create index.ts for types
+  cat > "$TARGET_DIR/src/types/index.ts" << EOF
+export * from './api-types';
+export * from '../models';
+EOF
+
+  # Create shared utils
+  cat > "$TARGET_DIR/src/utils/index.ts" << EOF
+export function sanitizeSubdomain(input: string): string {
+  return input
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+export function validateEmail(email: string): boolean {
+  const re = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+  return re.test(email);
+}
+
+export function generatePortalId(): string {
+  return \`portal_\${Date.now()}_\${Math.random().toString(36).substring(2, 9)}\`;
+}
+EOF
+
+  # Create shared constants
+  cat > "$TARGET_DIR/src/constants/index.ts" << EOF
+export const PORTAL_STATUSES = {
+  ACTIVE: 'active',
+  INACTIVE: 'inactive',
+  PENDING: 'pending',
+};
+
+export const USER_ROLES = {
+  ADMIN: 'admin',
+  USER: 'user',
+  GUEST: 'guest',
+};
+
+export const MAX_PORTALS_LIMIT = 5000;
+export const DEFAULT_MAX_USERS_PER_PORTAL = 50;
+EOF
+
+  # Create index file
+  cat > "$TARGET_DIR/src/index.ts" << EOF
+export * from './types';
+export * from './utils';
+export * from './constants';
+EOF
+fi
+
+# Create sample tests
+mkdir -p "$TARGET_DIR/tests"
+if [[ "$SERVICE_TYPE" == "frontend" ]]; then
+  cat > "$TARGET_DIR/tests/App.test.tsx" << EOF
+import { render, screen } from '@testing-library/react';
+import App from '../src/App';
+
+test('renders welcome message', () => {
+  render(<App />);
+  const welcomeElement = screen.getByText(/Welcome to your new client portal!/i);
+  expect(welcomeElement).toBeInTheDocument();
+});
+EOF
+elif [[ "$SERVICE_TYPE" == "backend" ]]; then
+  cat > "$TARGET_DIR/tests/health.test.ts" << EOF
+import request from 'supertest';
+import app from '../src/index';
+
+describe('Health Check', () => {
+  it('should return 200 status code', async () => {
+    const response = await request(app).get('/health');
+    expect(response.status).toBe(200);
+    expect(response.body).toHaveProperty('status', 'ok');
+  });
+});
+EOF
+fi
+
+# Create a Jest config
+cat > "$TARGET_DIR/jest.config.js" << EOF
+/** @type {import('jest').Config} */
+const config = {
+  preset: 'ts-jest',
+  testEnvironment: $([ "$SERVICE_TYPE" == "frontend" ] && echo "'jsdom'" || echo "'node'"),
+  moduleNameMapper: {
+    '^@/(.*)$': '<rootDir>/src/$1'
+  },
+  setupFilesAfterEnv: $([ "$SERVICE_TYPE" == "frontend" ] && echo "['<rootDir>/tests/setup.ts']" || echo "[]"),
+};
+
+export default config;
+EOF
+
+if [[ "$SERVICE_TYPE" == "frontend" ]]; then
+  # Create test setup for React
+  cat > "$TARGET_DIR/tests/setup.ts" << EOF
+import '@testing-library/jest-dom';
+EOF
+fi
+
+# Attempt to validate correct setup
+echo "✅ Validating setup..."
+ERRORS=0
+WARNINGS=0
+
+# Check package.json
+if [ ! -f "$TARGET_DIR/package.json" ]; then
+  echo "❌ ERROR: package.json was not created"
+  ERRORS=$((ERRORS+1))
+else
+  echo "✓ package.json exists"
+fi
+
+# Check TypeScript config
+if [ ! -f "$TARGET_DIR/tsconfig.json" ]; then
+  echo "❌ ERROR: tsconfig.json was not created"
+  ERRORS=$((ERRORS+1))
+else
+  echo "✓ tsconfig.json exists"
+fi
+
+# Check ESLint config
+if [ ! -f "$TARGET_DIR/.eslintrc.js" ]; then
+  echo "⚠️ WARNING: .eslintrc.js was not created"
+  WARNINGS=$((WARNINGS+1))
+fi
+
+# Check src directory
+if [ ! -d "$TARGET_DIR/src" ]; then
+  echo "❌ ERROR: src directory was not created"
+  ERRORS=$((ERRORS+1))
+else
+  echo "✓ src directory exists"
+fi
+
+# Check service-specific files
+if [[ "$SERVICE_TYPE" == "frontend" ]]; then
+  if [ ! -f "$TARGET_DIR/src/App.tsx" ]; then
+    echo "❌ ERROR: src/App.tsx was not created"
+    ERRORS=$((ERRORS+1))
+  else
+    echo "✓ Frontend React files exist"
+  fi
+  
+  if [ ! -f "$TARGET_DIR/tailwind.config.js" ]; then
+    echo "❌ ERROR: tailwind.config.js was not created"
+    ERRORS=$((ERRORS+1))
+  else
+    echo "✓ Tailwind configuration exists"
+  fi
+elif [[ "$SERVICE_TYPE" == "backend" ]]; then
+  if [ ! -f "$TARGET_DIR/src/index.ts" ]; then
+    echo "❌ ERROR: src/index.ts was not created"
+    ERRORS=$((ERRORS+1))
+  else
+    echo "✓ Backend server file exists"
+  fi
+fi
+
+# Final summary
+if [ $ERRORS -gt 0 ]; then
+  echo "❌ Package initialization completed with $ERRORS errors and $WARNINGS warnings."
+  echo "   Please check the logs above for details."
+  exit 1
+elif [ $WARNINGS -gt 0 ]; then
+  echo "⚠️ Package initialization completed with $WARNINGS warnings."
+  echo "   Please check the logs above for details."
+else
+  echo "✅ Package initialization completed successfully!"
+fi
+
+if [[ "$IS_MONOREPO" == true ]]; then
+  echo "📦 This package is part of a monorepo. Run 'yarn install' from the monorepo root."
+else
+  echo "📦 You can now install dependencies by running 'yarn install'."
+fi

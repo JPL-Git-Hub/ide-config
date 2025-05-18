@@ -1,0 +1,24 @@
+#!/bin/bash
+
+echo "🔍 Checking for package-lock.json files..."
+
+# Check if package-lock.json is staged for commit
+if git diff --cached --name-only | grep -q "package-lock.json"; then
+  echo "❌ ERROR: Attempting to commit package-lock.json"
+  echo "This project uses Yarn. Please remove package-lock.json from your commit."
+  echo "You can unstage it with: git reset HEAD package-lock.json"
+  echo "You can delete it with: rm package-lock.json"
+  exit 1
+fi
+
+# Also check for yarn.lock and package.json consistency
+if git diff --cached --name-only | grep -q "package.json"; then
+  if ! git diff --cached --name-only | grep -q "yarn.lock"; then
+    echo "⚠️  WARNING: You're modifying package.json without updating yarn.lock"
+    echo "Consider running 'yarn install' to update dependencies"
+    # This is just a warning, so we don't exit with error
+  fi
+fi
+
+echo "✅ No package-lock.json found in commit"
+exit 0
