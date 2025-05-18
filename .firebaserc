@@ -1,0 +1,21 @@
+{
+  "projects": {
+    "default": "the-law-shop-457607"
+  },
+  "targets": {
+    "the-law-shop-457607": {
+      "hosting": {
+        "workspace-tls": [
+          "workspace-tls"
+        ],
+        "root-tls": [
+          "the-law-shop-457607"
+        ],
+        "thelawshop": [
+          "thelawshop"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}
